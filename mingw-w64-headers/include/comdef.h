@@ -165,13 +165,40 @@ inline void _com_error::Ctor(const _com_error &that) throw() {
   if(m_perrinfo!=NULL) m_perrinfo->AddRef();
 }
 
-inline void _com_issue_error(HRESULT hr) {
+inline void _com_raise_error(HRESULT hr, IErrorInfo *perrinfo) {
 #if __EXCEPTIONS
-    throw _com_error(hr);
+    throw _com_error(hr, perrinfo);
 #else
     /* This is designed to use exceptions. If exceptions are disabled, there is not much we can do here. */
     __debugbreak();
 #endif
+}
+
+typedef void (WINAPI *__errorPfnType)(HRESULT hr, IErrorInfo *perrinfo);
+
+// throw exceptions by default
+__declspec(selectany) __errorPfnType __errorPfn = &_com_raise_error;
+
+inline void _com_issue_error(HRESULT hr) {
+    __errorPfn(hr, NULL);
+}
+
+inline void _com_issue_errorex(HRESULT hr, IUnknown *punk, REFIID riid) {
+    void *pv;
+    IErrorInfo *perrinfo = NULL;
+
+    if (punk != NULL && SUCCEEDED(punk->QueryInterface(riid, &pv))) {
+        ISupportErrorInfo *pserrinfo = static_cast<ISupportErrorInfo *>(pv);
+        if (pserrinfo->InterfaceSupportsErrorInfo(riid) == S_OK)
+            if (FAILED(GetErrorInfo(0, &perrinfo)))
+                perrinfo = NULL;
+        pserrinfo->Release();
+    }
+    __errorPfn(hr, perrinfo);
+}
+
+inline void _set_com_error_handler(void (WINAPI *pHandler)(HRESULT hr,IErrorInfo *perrinfo)) {
+    __errorPfn = pHandler;
 }
 
 
